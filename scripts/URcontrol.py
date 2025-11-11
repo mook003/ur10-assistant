@@ -1,5 +1,8 @@
 #!/usr/bin/env python
 # I am Zlobniy Lisia. I will kill all of you! oua-ha-ha-ha-ha!
+from pathlib import Path
+import sys
+sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 from typing import List
 import pygame as pg
