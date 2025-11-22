@@ -1,0 +1,9 @@
+sudo pip install sounddevice vosk
+sudo apt update
+sudo apt install portaudio19-dev python3-pip
+cd ~/ros2_ws/src/voice_controlled_robot
+./install_vosk_model.sh
+sudo apt-get update
+sudo apt-get install -y alsa-utils pulseaudio
+sudo apt-get install -y python3-pip portaudio19-dev
+pip3 install pyaudio

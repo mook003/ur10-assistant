@@ -7,6 +7,13 @@ MODEL_DIR="$HOME/vosk-models"
 mkdir -p $MODEL_DIR
 cd $MODEL_DIR
 
+# Установка unzip если не установлен
+if ! command -v unzip &> /dev/null; then
+    echo "📦 Установка unzip..."
+    sudo apt-get update
+    sudo apt-get install -y unzip
+fi
+
 # Скачивание и распаковка модели
 wget https://alphacephei.com/vosk/models/vosk-model-small-ru-0.22.zip
 unzip vosk-model-small-ru-0.22.zip

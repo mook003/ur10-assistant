@@ -29,7 +29,7 @@ class VoiceController(Node):
                 ('audio_device', 'auto'),
                 ('sample_rate', 16000),
                 ('publish_tool_commands', True),
-                ('enable_partial_results', True)
+                ('enable_partial_results', False)  # Отключаем частичные результаты
             ]
         )
         
@@ -93,6 +93,10 @@ class VoiceController(Node):
         self.control_command_pub = self.create_publisher(String, 'voice/control_command', 10)
         self.velocity_pub = self.create_publisher(Twist, 'cmd_vel', 10)
         self.recognized_speech_pub = self.create_publisher(String, 'voice/recognized_speech', 10)
+        # Новый публикатор для топика voice_control
+        self.voice_control_pub = self.create_publisher(String, 'voice_control', 10)
+        
+        self.get_logger().info('📡 Создан топик: voice_control')
         
         # Очередь для аудиоданных
         self.audio_queue = queue.Queue()
@@ -103,7 +107,7 @@ class VoiceController(Node):
         # Таймер для обработки аудио
         self.create_timer(0.1, self.process_audio)
         
-        self.get_logger().info('🎤 Голосовой контроллер запущен')
+        self.get_logger().info('🎤 Голосовой контроллер запущен. Говорите команды...')
 
     def initialize_audio(self):
         """Инициализация аудиосистемы."""
@@ -114,22 +118,26 @@ class VoiceController(Node):
             else:
                 self.audio_device = int(self.audio_device_param)
             
-            # Загрузка модели распознавания речи
+            # Получим информацию об устройстве для определения поддерживаемой частоты
+            device_info = sd.query_devices(self.audio_device, 'input')
+            actual_rate = int(device_info['default_samplerate'])
+            
             self.get_logger().info(f'📥 Загрузка модели Vosk из: {self.model_path}')
             self.model = Model(self.model_path)
-            self.recognizer = KaldiRecognizer(self.model, self.sample_rate)
+            self.recognizer = KaldiRecognizer(self.model, actual_rate)
             
-            # Запуск аудиопотока
+            # Запуск аудиопотока с правильной частотой
             self.audio_stream = sd.RawInputStream(
                 callback=self.audio_callback,
                 channels=1,
-                samplerate=self.sample_rate,
+                samplerate=actual_rate,
                 device=self.audio_device,
-                dtype='int16'
+                dtype='int16',
+                blocksize=2048  # Увеличиваем blocksize для предотвращения overflow
             )
             self.audio_stream.start()
             
-            self.get_logger().info(f'✅ Аудио инициализировано (устройство: {self.audio_device})')
+            self.get_logger().info(f'✅ Аудио инициализировано (устройство: {self.audio_device}, частота: {actual_rate}Hz)')
             
         except Exception as e:
             self.get_logger().error(f'❌ Ошибка инициализации аудио: {e}')
@@ -137,45 +145,64 @@ class VoiceController(Node):
 
     def audio_callback(self, indata, frames, time, status):
         """Callback-функция для обработки аудиопотока."""
-        if status:
-            self.get_logger().warn(f'Аудио статус: {status}')
+        # Игнорируем статусы для чистоты вывода
         self.audio_queue.put(bytes(indata))
 
     def find_tools_in_command(self, command):
-        """Поиск инструментов в команде."""
+        """Поиск ВСЕХ инструментов в команде."""
         command = command.lower().strip()
         found_tools = []
         
-        # Быстрый поиск по подстроке
+        # Ищем ВСЕ инструменты в команде
         for tool, keywords in self.tools_dict.items():
             for keyword in keywords:
                 if keyword in command:
                     found_tools.append(tool)
-                    break
+                    break  # break только для текущего инструмента, продолжаем искать другие
         
+        # Если нашли инструменты прямым поиском, возвращаем их
         if found_tools:
             return list(set(found_tools))
         
-        # Поиск по схожести для случаев с ошибками
+        # Поиск по схожести для случаев с ошибками (только если не нашли прямым поиском)
         words = re.findall(r'\w+', command)
         for word in words:
             for tool, keywords in self.tools_dict.items():
                 for keyword in keywords:
                     if AudioUtils.similarity(word, keyword) >= self.similarity_threshold:
-                        found_tools.append(tool)
+                        if tool not in found_tools:  # Добавляем только если еще нет
+                            found_tools.append(tool)
                         break
         
         return list(set(found_tools))
 
     def find_control_commands(self, command):
-        """Поиск команд управления в тексте."""
+        """Поиск ВСЕХ команд управления в тексте."""
         command = command.lower().strip()
+        found_commands = []
         
+        # Ищем ВСЕ команды управления в команде
         for control_cmd, keywords in self.control_commands.items():
             for keyword in keywords:
                 if keyword in command:
-                    return control_cmd
-        return None
+                    found_commands.append(control_cmd)
+                    break  # break только для текущей команды, продолжаем искать другие
+        
+        # Если нашли команды прямым поиском, возвращаем их
+        if found_commands:
+            return list(set(found_commands))
+        
+        # Поиск по схожести для случаев с ошибками (только если не нашли прямым поиском)
+        words = re.findall(r'\w+', command)
+        for word in words:
+            for control_cmd, keywords in self.control_commands.items():
+                for keyword in keywords:
+                    if AudioUtils.similarity(word, keyword) >= self.similarity_threshold:
+                        if control_cmd not in found_commands:  # Добавляем только если еще нет
+                            found_commands.append(control_cmd)
+                        break
+        
+        return list(set(found_commands))
 
     def execute_control_command(self, command):
         """Выполнение команды управления."""
@@ -196,6 +223,18 @@ class VoiceController(Node):
         self.velocity_pub.publish(twist_msg)
         self.get_logger().info(f'🚗 Выполняю команду: {command}')
 
+    def format_voice_control_message(self, original_command, tools, control_commands):
+        """Форматирует сообщение для топика voice_control в читаемом виде."""
+        # Создаем читаемый JSON без Unicode escape
+        message_data = {
+            'command': original_command,
+            'tools': tools,
+            'control_commands': control_commands
+        }
+        
+        # Используем ensure_ascii=False для читаемых русских символов
+        return json.dumps(message_data, ensure_ascii=False, indent=2)
+
     def process_audio(self):
         """Обработка аудиоданных."""
         try:
@@ -214,31 +253,50 @@ class VoiceController(Node):
                         speech_msg.data = text
                         self.recognized_speech_pub.publish(speech_msg)
                         
-                        # Поиск инструментов
+                        found_tools = []
+                        found_control_commands = []
+                        
+                        # Поиск ВСЕХ инструментов
                         tools = self.find_tools_in_command(text)
-                        if tools and self.publish_tool_commands:
+                        if tools:
+                            found_tools = tools
                             tool_msg = String()
                             tool_msg.data = json.dumps({
                                 'tools': tools,
                                 'original_command': text
-                            })
+                            }, ensure_ascii=False)
                             self.tool_command_pub.publish(tool_msg)
                             self.get_logger().info(f'🎯 Инструменты: {", ".join(tools)}')
                         
-                        # Поиск команд управления
-                        control_cmd = self.find_control_commands(text)
-                        if control_cmd:
-                            control_msg = String()
-                            control_msg.data = control_cmd
-                            self.control_command_pub.publish(control_msg)
-                            self.execute_control_command(control_cmd)
-                
-                elif self.enable_partial_results:
-                    # Вывод частичных результатов
-                    partial_result = json.loads(self.recognizer.PartialResult())
-                    partial_text = partial_result.get("partial", "").strip()
-                    if partial_text:
-                        self.get_logger().info(f'▌ Слушаю: {partial_text}', skip_first=True)
+                        # Поиск ВСЕХ команд управления
+                        control_commands = self.find_control_commands(text)
+                        if control_commands:
+                            found_control_commands = control_commands
+                            for control_cmd in control_commands:
+                                control_msg = String()
+                                control_msg.data = control_cmd
+                                self.control_command_pub.publish(control_msg)
+                                self.execute_control_command(control_cmd)
+                            self.get_logger().info(f'🎮 Команды управления: {", ".join(control_commands)}')
+                        
+                        # Публикация в voice_control только если найдены инструменты или команды управления
+                        if found_tools or found_control_commands:
+                            # Форматируем сообщение в читаемом виде
+                            voice_control_data = self.format_voice_control_message(
+                                text, found_tools, found_control_commands
+                            )
+                            
+                            voice_control_msg = String()
+                            voice_control_msg.data = voice_control_data
+                            self.voice_control_pub.publish(voice_control_msg)
+                            
+                            # Красивый вывод в лог
+                            if found_tools and found_control_commands:
+                                self.get_logger().info(f'📤 Опубликовано в voice_control: инструменты [{", ".join(found_tools)}] + команды [{", ".join(found_control_commands)}]')
+                            elif found_tools:
+                                self.get_logger().info(f'📤 Опубликовано в voice_control: инструменты [{", ".join(found_tools)}]')
+                            elif found_control_commands:
+                                self.get_logger().info(f'📤 Опубликовано в voice_control: команды [{", ".join(found_control_commands)}]')
                         
         except Exception as e:
             self.get_logger().error(f'❌ Ошибка обработки аудио: {e}')

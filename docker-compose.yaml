@@ -6,6 +6,7 @@ x-common: &common-setup
     - .:/home/mobile/ros2_ws/src:rw
     - /tmp/.X11-unix:/tmp/.X11-unix:rw
     - /dev/dri:/dev/dri:rw
+    - /dev/snd:/dev/snd:rw  # Добавляем доступ к аудиоустройствам
   environment:
     - NVIDIA_VISIBLE_DEVICES=all
     - NVIDIA_DRIVER_CAPABILITIES=compute,utility,video,graphics,display
@@ -22,13 +23,15 @@ services:
     devices:
       - /dev/video0:/dev/video0
       - /dev/video1:/dev/video1
+      - /dev/snd:/dev/snd  # Добавляем аудиоустройства
     group_add:
       - "video"
       - "44"
-    command: [
-      "/bin/bash","-lc","
+      - "29"  # audio group
+    command: >
+      sh -c "
       sudo chmod 666 /dev/ttyUSB* 2>/dev/null || true &&
       sudo chmod 666 /dev/spidev* 2>/dev/null || true &&
-      sudo chmod 666 /dev/ttyACM* 2>/dev/null || true;
-      exec bash"
-      ]
+      sudo chmod 666 /dev/ttyACM* 2>/dev/null || true &&
+      sudo chmod 666 /dev/snd/* 2>/dev/null || true &&
+      /bin/bash -l"

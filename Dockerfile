@@ -63,14 +63,7 @@ RUN apt-get update && apt-get upgrade -y && \
     ros-${ROS_DISTRO}-urdf-tutorial \
     ros-${ROS_DISTRO}-v4l2-camera \
     ros-${ROS_DISTRO}-camera-calibration \
-    ros-${ROS_DISTRO}-apriltag-ros \
-    ros-${ROS_DISTRO}-image-pipeline \
-    ros-${ROS_DISTRO}-camera-calibration \
-    ros-${ROS_DISTRO}-ros2controlcli \
-    ros-${ROS_DISTRO}-ur \
-    iputils-ping \
-    libcanberra-gtk-module \
-    libcanberra-gtk3-module \
+    libcanberra-gtk-module libcanberra-gtk3-module \
     at-spi2-core x11-apps xauth \
     libgflags-dev \
     libdw-dev \
@@ -83,7 +76,7 @@ RUN apt-get update && apt-get upgrade -y && \
     --fix-missing
 
 RUN python3 -m pip install --no-cache-dir --upgrade pip \
- && python3 -m pip install --no-cache-dir onnxruntime==1.18.1 ultralytics
+ && python3 -m pip install --no-cache-dir onnxruntime==1.18.1
 
 # Clean up
 RUN apt-get clean && rm -rf /var/lib/apt/lists/*

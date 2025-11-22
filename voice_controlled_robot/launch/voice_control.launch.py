@@ -4,7 +4,7 @@ import os
 
 def generate_launch_description():
     # Путь к модели Vosk
-    model_path = os.path.expanduser('~/vosk-models/vosk-model-small-ru-0.22')
+    model_path = os.path.expanduser('/home/mobile/vosk-models/vosk-model-small-ru-0.22')
     
     return LaunchDescription([
         Node(
@@ -18,7 +18,9 @@ def generate_launch_description():
                 'audio_device': 'auto',
                 'sample_rate': 16000,
                 'publish_tool_commands': True,
-                'enable_partial_results': True
+                'enable_partial_results': False,
+                'blocksize': 2048,
+                'channels': 1
             }]
         ),
     ])
